@@ -158,7 +158,13 @@ module CartoDB
           return nil
         end
 
-        geom_type = user.in_database["SELECT GeometryType(#{THE_GEOM}) FROM #{qualified_table_name} WHERE #{THE_GEOM} IS NOT null limit 1"].first
+        geom_type = user.in_database[%Q{
+          SELECT GeometryType(#{THE_GEOM})
+          FROM #{qualified_table_name}
+          WHERE #{THE_GEOM} IS NOT null
+          LIMIT 1
+        }].first
+
         type = geom_type[:geometrytype].to_s.downcase if geom_type
 
         # if the geometry is MULTIPOINT we convert it to POINT
@@ -172,14 +178,20 @@ module CartoDB
           type = 'point'
         end
 
-        # if the geometry is LINESTRING or POLYGON we convert it to MULTILINESTRING and MULTIPOLYGON resp.
+        # if the geometry is LINESTRING or POLYGON we convert it to MULTILINESTRING or MULTIPOLYGON
         if %w(linestring polygon).include?(type)
           user.db_service.in_database_direct_connection(statement_timeout: STATEMENT_TIMEOUT) do |user_database|
             user_database.run("SELECT public.AddGeometryColumn('#{schema_name}', '#{table_name}','the_geom_simple',4326, 'GEOMETRY', 2);")
             user_database.run(%Q{UPDATE #{qualified_table_name} SET the_geom_simple = ST_Multi(the_geom);})
             user_database.run("SELECT DropGeometryColumn('#{schema_name}', '#{table_name}','the_geom');")
             user_database.run(%Q{ALTER TABLE #{qualified_table_name} RENAME COLUMN the_geom_simple TO the_geom;})
-            type = user_database["SELECT GeometryType(#{THE_GEOM}) FROM #{qualified_table_name} WHERE #{THE_GEOM} IS NOT null LIMIT 1"].first[:geometrytype]
+
+            type = user_database[%Q{
+              SELECT GeometryType(#{THE_GEOM})
+              FROM #{qualified_table_name}
+              WHERE #{THE_GEOM} IS NOT null
+              LIMIT 1
+            }].first[:geometrytype]
           end
         end
 
